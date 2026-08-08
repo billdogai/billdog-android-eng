@@ -3,10 +3,10 @@
 ![Version](https://img.shields.io/badge/version-1.0.0--beta.2-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
 ![minSdk](https://img.shields.io/badge/minSdk-21-orange)
-![Distribution](https://img.shields.io/badge/Maven-GitHub%20Packages-24292e?logo=github)
+![Maven Central](https://img.shields.io/badge/Maven%20Central-io.billdog-blue?logo=apachemaven)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-The **Eng** edition of the BillDog Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, distributed as a **compiled AAR** (closed source) via **GitHub Packages (Maven)** at version **`1.0.0-beta.2`**.
+The **Eng** edition of the BillDog Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, published as a **compiled AAR** (closed source) to **Maven Central** at version **`1.0.0-beta.2`** — no account or token required.
 
 > `billdog-eng` bundles the Eng feature set transitively: **core, analytics, A/B testing, notifications, in-app messages, session replay, and surveys**. It is **mutually exclusive** with the full `io.billdog:billdog` suite — install one or the other, never both.
 >
@@ -16,7 +16,7 @@ The **Eng** edition of the BillDog Android SDK — a single umbrella artifact, *
 
 ## 🏗️ What's inside
 
-`billdog-eng` is a convenience umbrella that pulls these modules from the **full** registry:
+`billdog-eng` is a convenience umbrella that pulls these modules transitively (all published to Maven Central under `io.billdog`):
 
 ```text
 billdog-eng  →  billdog-core            (identity + billing foundation)
@@ -33,42 +33,17 @@ billdog-eng  →  billdog-core            (identity + billing foundation)
 
 ## 🚀 Installation
 
-### 1. Add **both** registries
+### 1. Add the registry
 
-`billdog-eng` lives here; its shared dependencies live in `billdog-android-full`, so you must register **both** Maven repositories. GitHub Packages requires a **Personal Access Token** with the **`read:packages`** scope even to download.
+`billdog-eng` and all its transitive dependencies are on **Maven Central** — no account, credentials, or token required. Ensure `mavenCentral()` is in your `settings.gradle.kts`:
 
 ```kotlin
 dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-
-        // The Eng umbrella artifact
-        maven {
-            url = uri("https://maven.pkg.github.com/billdogai/billdog-android-eng")
-            credentials {
-                username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
-                password = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")
-            }
-        }
-
-        // Shared transitive modules (billdog-core, -analytics, -survey, …)
-        maven {
-            url = uri("https://maven.pkg.github.com/billdogai/billdog-android-full")
-            credentials {
-                username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GITHUB_ACTOR")
-                password = providers.gradleProperty("gpr.key").orNull ?: System.getenv("GITHUB_TOKEN")
-            }
-        }
     }
 }
-```
-
-Store credentials in `~/.gradle/gradle.properties` (never commit them):
-
-```properties
-gpr.user=YOUR_GITHUB_USERNAME
-gpr.key=YOUR_GITHUB_PAT_WITH_read_packages
 ```
 
 ### 2. Add the dependency
@@ -80,6 +55,14 @@ dependencies {
 ```
 
 That one line brings in the full Eng suite transitively.
+
+<details>
+<summary>Alternative: GitHub Packages</summary>
+<br>
+
+The artifacts are also mirrored to GitHub Packages, but the Eng umbrella and its shared modules live in **two** repos (`billdog-android-eng` + `billdog-android-full`), and GitHub Packages requires a PAT with `read:packages` even to download — so **Maven Central above is the recommended path**. If you specifically need the mirror, register both Maven URLs (`.../billdogai/billdog-android-eng` and `.../billdogai/billdog-android-full`) with `gpr.user`/`gpr.key` credentials.
+
+</details>
 
 ---
 
