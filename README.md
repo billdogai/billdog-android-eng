@@ -1,12 +1,12 @@
 # BillDog Android SDK — Eng
 
-![Version](https://img.shields.io/badge/version-1.0.0--beta.2-blue)
+![Version](https://img.shields.io/badge/version-1.1.0--beta.3-blue)
 ![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)
 ![minSdk](https://img.shields.io/badge/minSdk-21-orange)
 ![Maven Central](https://img.shields.io/badge/Maven%20Central-io.billdog-blue?logo=apachemaven)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-The **Eng** edition of the BillDog Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, published as a **compiled AAR** (closed source) to **Maven Central** at version **`1.0.0-beta.2`** — no account or token required.
+The **Eng** edition of the BillDog Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, published as a **compiled AAR** (closed source) to **Maven Central** at version **`1.1.0-beta.3`** — no account or token required.
 
 > `billdog-eng` bundles the Eng feature set transitively: **core, analytics, A/B testing, notifications, in-app messages, session replay, and surveys**. It is **mutually exclusive** with the full `io.billdog:billdog` suite — install one or the other, never both.
 >
@@ -50,7 +50,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("io.billdog:billdog-eng:1.0.0-beta.2")
+    implementation("io.billdog:billdog-eng:1.1.0-beta.3")
 }
 ```
 
