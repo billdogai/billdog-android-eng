@@ -20,6 +20,7 @@ The **Eng** edition of the BillDog Android SDK — a single umbrella artifact, *
 
 ```text
 billdog-eng  →  billdog-core            (identity + billing foundation)
+             +  billdog-auth            (native auth, hosted cards & sessions)
              +  billdog-analytics       (events + user properties)
              +  billdog-ab-test         (A/B testing)
              +  billdog-notifications   (push + deep links)
