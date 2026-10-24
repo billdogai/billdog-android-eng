@@ -5,6 +5,87 @@ All notable changes to the BillDog Android SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A purchase through `billdog-integration-superwall` is attributed to the BillDog offering behind the Superwall paywall on screen, when `SuperwallBillDogPurchaseController(offeringMap = …)` names it (Superwall paywall identifier → BillDog offering identifier); the Play offer Superwall selected still applies. Superwall presents its own paywall, so no BillDog paywall was on screen and a product sold in more than one offering (experiment arms, a seasonal offering) was credited to the first loaded offering selling it. A purchase with no mapped paywall on screen, or whose mapped offering is not loaded or does not sell the product, is attributed as before (the last two log a warning). New: `PurchaseParams.presentedOfferingContext` (`Builder.presentedOfferingContext`) names the offering a `purchase(activity, params)` is attributed to, ahead of the first loaded offering selling the product, as a package's own context does (RevenueCat `PurchaseParams.Builder.presentedOfferingContext`). Code compiled against 1.1.1-beta.3's nine-property `PurchaseParams` constructor and `copy` still links.
+
+## [1.1.1-beta.4] - 2026-10-24
+
+### Fixed
+
+- `downgradeSubscription` (and any plan change with `GoogleReplacementMode.DEFERRED`) returns: under DEFERRED Play answers with the subscription being replaced, and BillDog waited for the new product, so a successful downgrade never resolved and no `DOWNGRADE_SUBSCRIPTION_COMPLETED` fired. Play's answer is now matched to the billing flow BillDog launched (RevenueCat parity), which also keeps that flow's user and paywall attribution from attaching to a later purchase or renewal, and stops a later, unrelated billing error from failing it.
+- `restorePurchases()` fails when Play cannot be read (billing unavailable, an error answer) with `BillDogError.StoreUnavailable`; it answered `Restored` with nothing in it. When the device is offline and BillDog's server kept none of the restored purchases, it fails with `BillDogError.NetworkError` to retry; the purchases are saved and still sent when the device is back online. Without `billdog-paywall` linked, BillDog's own restore fails as `StoreUnavailable`.
+- `purchase(activity, package)` attributes the purchase to that package's own offering and placement (`Package.presentedOfferingContext`), in the `purchase_*` events and the recorded purchase. When the same product was sold in more than one loaded offering, it was credited to the first package found selling it (RevenueCat and iOS parity).
+- A purchase from a paywall (WebView or Compose, including an upgrade or downgrade from it) is attributed to the offering that paywall rendered. A paywall buys by product id, and when that product was sold in more than one loaded offering (experiment arms, a seasonal offering), the purchase was credited to the first offering found selling it; the paywall id was right. `BillDog.claimPaywallAttribution` gains overloads naming the rendered offering (an `Offering`, or its id and placement id) for a custom rendering surface.
+- Analytics applies the dashboard's **Session timeout** (default 300 s): an event after that long without one, or after 24 hours, starts a new session, and returning to the app after the timeout records `$session_start` for it. The setting was read and never used; a session lasted as long as the process. The session also outlives the process: Android kills backgrounded apps freely, and a launch within the timeout continues the visit instead of starting another. Each session gets exactly one `$session_start` — however it began (a launch, the timeout passing while the app stayed open, an opt-in) — and `$app_backgrounded` / `$session_end` durations run from the session's start. The timeout (the client override or the dashboard's) is clamped to 60 s – 24 h: 0 made every event its own session.
+- A journey action the guest's poll delivered is not delivered again after `logIn` (or `switchUser` / `logOut`): each poller kept its own in-flight set, so the signed-in user's poll — the guest adopted into the account — delivered the same action, and the app ran one journey step twice. The pollers now share one ledger, as on iOS; only `reset()` empties it.
+- Journey actions across an identity change: after `logOut` (or `logIn` / `switchUser`), an answer to the previous identity's poll still in flight is no longer delivered — the signed-out user's step reached the next guest.
+- Fonts from an older paywall config's family map (`resources.fonts: { "Inter": { weights: [...] } }`) load: only the server's array was read, so such a paywall drew every custom family in the system font. Read as iOS reads it (`tests/parity/font-faces.vectors.json`).
+- A font face with an explicit JSON `null` (`"url": null`) is read as absent; it became the URL "null". A face's weight may be a decimal or a numeric string.
+- A paying subscriber who is offline at a cold launch gets through a gated placement. Each placement's last-known gate (`gated` + `required_entitlement`) is kept per user on the device; when the server cannot be reached (an `IOException`: no connection, an unknown host, a timeout — never a server answer such as the 403 withheld or a 5xx) and that gate is a gate, the customer info on the device decides it: holding the required entitlement (or any active one when it names none) reports `PlacementResult.Entitled` / `onSkip(USER_HAS_ENTITLEMENT)`, runs `registerFeature`'s closure, `getPresentationResult` says `UserSubscribed`, `getPaywall` throws `PaywallSkippedException(USER_HAS_ENTITLEMENT)` and `hasAccessForPlacement` answers `true`. Anything else still fails as before; an ungated or never-resolved placement is never unlocked offline, and one user's gates never answer for another (Superwall `ConfigState` falls back to its persisted config the same way).
+- Background work (analytics sync, receipt sync, the Play acknowledgement deadline) in a process WorkManager starts without your `configure` — always so for React Native and Flutter apps — routes through the proxy you configured; it went straight to BillDog. The WebView survey page's API base follows the proxy and the environment (it was the production URL), and relative paywall asset paths resolve against the proxy's host when one is set.
+- A `setProxyURL` URL that does not end in `/v1` gets it: a bare host (`https://proxy.example.com`) was used as given and missed the version every BillDog route is under. A URL ending in `/v1` is unchanged (`BillDogConfig.functionsBase`, the same rule as iOS and React Native).
+- `BillDogConfig.localeOverride` takes effect: `BillDog.configure` applies it as `BillDogConfig.setLocaleOverride` does (iOS's config always did). Nothing read it — every paywall, survey and the localization resolver read the runtime override — so a configured locale did nothing. A blank one is no override.
+- The background analytics sync (a process WorkManager starts without the app's `configure()` — always the case for React Native and Flutter apps) applies the app's `BillDogConfig` analytics overrides from its last configure. It rebuilt its config from the API key alone, so it sent queued events for an app that had set `analyticsEnabled = false`.
+- `survey_presented` was recorded twice per presentation when analytics was registered (once from the event bus, once by the survey presenter); it is recorded once. The bus copy of `survey_completed` (recorded server-side) is no longer sent either. Bus events whose record is made elsewhere carry `BillDogEventBus.recordedElsewhere` / `RECORDED_ELSEWHERE`.
+- Customer info belongs to the user it was read for. An answer that lands after its user signed out or switched away (a read already in flight at `logOut`) is dropped: it no longer became the new guest's `getCustomerInfo()`, `hasEntitlement` and placement gate, reached the delegate and `customerInfoStream`, or was written back to disk. A `logIn` whose read fails shows the new user their own stored customer info or none — never the previous user's — and `customerInfoStream` no longer replays the previous user's to a new subscriber.
+- A launch restores the current user's stored customer info before anything reads it (RevenueCat parity): a subscriber is entitled at once, `getCustomerInfo()` answers offline from disk instead of failing, and `entitlements` / `subscriptionStatus` name the stored entitlements. The disk copy was written on every read and never read back.
+- `getCustomerInfo()` (the default cached-or-fetched policy) refreshes in the background only when its cached answer is five minutes old, as RevenueCat does; it started a server read on every call. `refreshSubscriptionStatus()` always reads the server.
+- `switchUser` and `invalidateCustomerInfoCache()` keep every other user's stored customer info (they wiped them all), so switching back answers from disk. `logOut` still wipes every user's.
+- `subscriptionStatus` and `entitlements` are always the current user's: `logIn`, `switchUser`, `logOut` and a new guest set them from that user's stored customer info or stored status, or `UNKNOWN` when there is none, instead of keeping the previous user's until a refresh. The last-known status is stored per user (`logOut` wipes all of them); the device-wide status an earlier version stored, whoever it belonged to, is no longer restored at launch.
+- A failed `refreshSubscriptionStatus()` keeps the last-known status: it published and stored `UNKNOWN`, so the next launch restored no status at all.
+
+### Added — products naming a Play base plan (`subscriptionId:basePlanId[:offerId]`)
+- A BillDog product's Play id may name one base plan of a Play subscription, as RevenueCat (`productId:basePlanId`) and Superwall (`productId:basePlanId:offerId`) write it: `premium:monthly` and `premium:yearly` are two products, each showing and buying its own base plan's price, period, free trial and intro price, and `premium:yearly:intro-50` also pins an offer (the base plan when the user is not eligible). Play is queried with the subscription id; its purchase, which names only the subscription, answers the purchase of the base plan asked for, under that id (callbacks, attribution, `PurchaseResult.productId`). A base plan Play does not list is unavailable, never swapped for another. A bare id keeps choosing among every base plan. Restore reports Play's subscription id (Play's purchase carries no base plan); the server maps each purchase to its base plan's product. New public type: `io.billdog.core.models.PlayProductId`.
+- A plan change (`upgradeSubscription`, `PurchaseParams` with `oldProductId`) buys the offer a purchase of the same package would: its base plan, its pinned offer (`playOfferId` or the id's `:offerId`), else the default rule (longest free trial, else cheapest intro, skipping `-ignore-offer`). It bought whichever offer Play listed first — a win-back or another base plan's offer included.
+
+### Changed — a product Play does not sell fails on every key; simulating is opt-in
+- A test key used to turn "Play returned no product" into a synthesized success (a
+  `sandbox_<uuid>` transaction): the app was told it purchased, its paywall closed as
+  purchased, post-purchase actions ran and `purchase_completed` was sent, while nothing was
+  charged and no entitlement was ever granted. It also hid real misconfiguration (a SKU
+  Play does not sell) exactly while the app was being tested. That fallback is removed: the
+  purchase fails, on every key, with an error naming the id Play was asked for and what to
+  check.
+- New: `BillDogConfig.simulatedPurchases` (default false), RevenueCat Test Store parity. On a
+  test key every purchase is simulated: no billing sheet, nothing charged, and BillDog records it
+  on the server as a simulated SANDBOX purchase that grants its entitlements, so the app's
+  customer info matches what it was told. Results carry a `sim:` transaction id, every
+  purchase event carries `simulated: true`, and none carries revenue. Ignored with an error
+  on a live key; a `purchaseController` passed to `configure` wins over it. Needs the
+  `record-simulated-purchase` edge function.
+- A sandbox purchase is no longer also posted to `sdk-create-test-purchase` (the dashboard
+  test-store table). Real sandbox purchases are recorded once, in the purchase ledger.
+
+### Fixed — a Paywall Builder purchase button asked Play for the wrong product
+- The Builder's Purchase action names its product by the BillDog `product_identifier`
+  (`sbx-sub-monthly`), which Play does not sell; the Play SKU is `play_store_product_id`.
+  Only a package identifier was mapped to the SKU, so the tap queried Play with the BillDog id:
+  product-not-found on a live key, and on a test key the sandbox simulator's synthesized
+  success, with no billing sheet and nothing recorded.
+- Every purchase path now resolves its product reference to the SKU before Play Billing:
+  `purchase(activity, productId)`, `purchase(productId)`, `purchase(activity, params)`,
+  `purchase(activity, package)`, both paywall Activities, and the observer-mode
+  `observePurchase*` calls. A SKU, a package identifier, a `product_identifier` or a
+  `products.id` all resolve, across every loaded offering and the offering a placement wall
+  sells; an id no package knows is used as given, as the SKU.
+- `purchase(activity, package)` for a package with a Play offer (`playOfferId`) sent the bare
+  package identifier when the package had no loaded Play product; it now sends the SKU.
+- The purchase's offering attribution and revenue follow the resolved SKU.
+- A WebView tap with no product falls back to the wall's first package by its Play SKU, not its
+  BillDog id; a tap naming only its `packageId` purchases that package.
+
+### Fixed — test walls and attribution follow the purchased SKU
+- Draft (`fetchPaywallDraft`) and preview-link (`fetchPreviewPaywall`) fetches now name the
+  platform, so the server serves their purchase actions by the Play SKU, as it does for a live
+  wall. Previously only the SDK's own resolver mapped a draft or preview wall's purchase.
+- A purchase's offering attribution is resolved through the same `StoreProductReference` as the
+  purchase, then credited to the package selling that SKU. The lookup had its own matcher, which
+  knew no Builder `product_identifier` or `products.id`, so attribution and the purchased SKU
+  could disagree.
+
 ## [1.1.1-beta.3] - 2026-10-17
 
 ### Fixed — every package of a bound product list is shown
