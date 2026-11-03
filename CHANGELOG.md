@@ -7,9 +7,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1-beta.5] - 2026-11-03
+
+### Fixed — Superwall 2.9: paywall purchases reach BillDog
+
+- `billdog-integration-superwall` now implements the `purchase(…, ProductReplacement)` overload Superwall 2.9 added to `PurchaseController` and calls for every paywall purchase. Compiled against Superwall 2.0, the controller lacked it: on Superwall 2.9 every tap on a paywall's buy button was an `AbstractMethodError` that Superwall swallowed, and nothing was bought. A Superwall plan change (`ProductReplacement`) becomes BillDog's (`oldProductId` + `replacementMode`). The module now compiles against Superwall 2.9.0; Superwall 2.0–2.8 keep working.
+
+### Fixed — OAuth sign-in opens in a browser, never in another app
+
+- The sign-in tab is pinned to a browser (the default one if it supports Custom Tabs, else any that does). Unpinned, Android handed `https://www.facebook.com/...` to the installed Facebook app, which drops a web OAuth request it did not start, so Facebook sign-in came back "cancelled by the user" on every phone with the Facebook app. AppAuth pins its tab the same way. The manifest now also declares the Custom Tabs service and `http` browsers under `<queries>` so Android 11+ can see them.
+
+### Fixed — analytics batches name the SDK that sent them
+
+- Each ingest batch carries `lib` / `lib_version` (PostHog's `$lib` / `$lib_version`): `billdog-android` at the SDK version, or the wrapper that runs it (`billdog-flutter`, `billdog-react-native`, `billdog-expo`, …, from `BillDogPlatformInfo.current`) at the wrapper's version. Native rows were stored with no lib, so their `event_source` was 'other' instead of 'mobile'.
+
+### Fixed — analytics flushes when the app goes to the background
+
+- The queue is flushed when the process goes to the background (server `flush_on_background`, default on) and the WorkManager sync is scheduled, whether or not session auto-tracking runs. Both lived in `AutoTracker`, which runs only with session tracking on (off by default), so an app on defaults left its last events for a timer tick in a process the OS may freeze, or for the next launch. posthog-android flushes on every process `onStop` the same way.
+
+### Added — session replay for the wrappers
+
+- `SessionReplayConfig.externalFrames` and `BillDogReplay.appendExternalFrame(bitmap)`: a recording whose frames the host draws and masks itself (the Flutter SDK), encoded and uploaded like screenshots.
+- `SessionReplayConfig.maskAllImages` (default false). React Native's `testID` is read as a `bd-mask` marker, and Fabric's `PreparedLayoutTextView` is masked as text.
+
+### Changed (round 3 platform parity)
+
+- **`billdog-notifications` declares no exact-alarm permission.** `USE_EXACT_ALARM` (Google Play restricts it to alarm and calendar apps) and `SCHEDULE_EXACT_ALARM` (denied by default from Android 14) are gone from the library manifest, so no host inherits a Play-policy problem. Reminders go through WorkManager, now as unique work per reminder (re-scheduling replaces instead of queueing a duplicate), and with the same fire-time refund recheck as the alarm path. An app that declares `SCHEDULE_EXACT_ALARM` itself and is granted it still gets exact alarms; a revoked grant falls back to WorkManager instead of dropping the reminder.
+- **The web-checkout return scheme is app-specific.** `BillDogConfig.customUrlScheme` defaults to empty, meaning `<applicationId>.billdog` (`CheckoutUrlScheme`), instead of the `billdog` every app shared — with two BillDog apps installed a return or redeem link (a bearer token) could open the other one. An app that still registers only `billdog` keeps using it (logged) until it adds its own intent filter; incoming `billdog://` links stay accepted in default mode. A scheme set in the config is the only one claimed.
+- **One consent path.** `ConsentManager` tells its listeners after every write (`addChangeListener`), and `BillDog` drops its kept placement answers there, so a per-purpose grant, a module's own consent setter or a wrapper calling `ConsentManager` directly has the same effect as `BillDog.setConsentGiven`. New facade calls `BillDog.setConsent(purpose, granted)` / `hasConsent(purpose)` (iOS parity).
+
+### Added
+
+- **FCM token path** (`io.billdog.notifications.fcm`): with `firebase-messaging` and `google-services.json` in the app (the SDK links Firebase compile-only), the install's FCM token is registered at every configure, and `BillDogFirebaseMessagingService` — declare it in the app manifest — registers new tokens and draws BillDog's pushes. Without Firebase nothing changes.
+
+### Deprecated (could never work; no longer offered by any wrapper)
+
+- `VirtualCurrencyManager.addCurrency`, `deductCurrency`, `grantCurrency` and `exchangeCurrency` throw `BillDogException(ConfigurationError)` at once, without a request. Every wallet write needs the project's secret key and the server answers an app's publishable key 403, so they failed on every device (`/exchange` is retired server-side). Virtual currencies are read-only in the client, as in RevenueCat: credit and spend from your server (`POST /v1/virtual-currency/transactions` or `/adjustments`). `getCurrencyBalance` and `getTransactionHistory(currencyId)` take a currency code as well as its id. iOS: the same.
+- `BillDogNotifications.addTag` / `addTags` / `removeTag` / `removeTags` / `getTags`, the alias calls, `addEmail` / `removeEmail` / `getEmails` and `addSms` / `removeSms` / `getSmsNumbers` are no-ops that log one warning; the getters return nothing. They kept their values in memory and never sent them. Tags, email and phone are contact fields only your server may write (`sync-subscriber`, secret key); an alias is `BillDog.logIn(appUserId)`. iOS: the same.
+
 ### Fixed
 
+- Session replay lost the chunk, video included, whenever the user scrolled for a few seconds: every touch move the panel reported was recorded (a 400 ms swipe was 381 events), the chunk went over record-session-replay's 500 events and was refused (400). Moves are thinned as iOS and rrweb thin them (one per 50 ms, 10 dp apart) and a chunk's touches stay under 400.
+- Session replay recordings were never stored: every chunk named `project_id` = `BillDogConfig.projectId`, the backend's ref, and record-session-replay refused it (403 "API key does not match the project ID"); the uploader drops a 403. Chunks name no project now — the API key decides it.
+- Session replay started while a screen was already showing (a button, the dashboard's `session_replay` once sdk-config lands after launch) recorded nothing until the user left the app and came back. It now starts on the Activity in front.
+- An active user's session ended at the analytics session timeout unless the app tracked an event, and session replay, which follows the session, split the recording there (each part billed as a recording). A touch is now session activity: new `BillDogAnalytics.touchSession()`, called by the replay touch tracker, as PostHog's `touchSession` does.
+- Notification permission observers (`PushSubscriptionManager.addPermissionObserver`) hear a change made in Settings when the app returns to the foreground: `BillDogNotifications` re-reads the permission on each foreground, as iOS does on `didBecomeActive`. They used to hear it only when the app read the status itself. Subscription observers hear it too (`optedIn` follows the permission), as on iOS.
+
+### Added
+
+- `PaywallPresentationHandler.onOAuthSuccess(PaywallSignIn)` (public, also a constructor parameter): the paywall closed after a sign-in made on it that the server verified, with no purchase or restore. Called just before `onDismiss`, from `presentPaywall` and from `register(…, presentationHandler)`, which reported that close as a plain dismissal. Same shape as iOS.
+- `PaywallScreen(onOpenUrl: ((String) -> Boolean)?)`: a host that embeds the screen hears an "Open URL" tap and the Terms / Privacy links, and returns true to take the URL (the screen then does not open it) or false to let the screen open it. The screen opened every URL itself with no callback, so the Flutter and React Native inline paywall views could not report it. Deep links, checkout and sign-in tabs are unaffected. iOS hands the same URLs to its `PaywallViewControllerDelegate`.
+
+- `BillDogConfig.showsPurchaseFailureAlert` (default true), as on iOS: turns off the paywall's restore alerts and its purchase-failed Toast for an app that shows its own message.
+- `BillDog.canMakePayments(features, callback)` and `awaitCanMakePayments(features)`: connect a BillingClient and answer whether Play can take payments, and whether each requested `BillingClient.FeatureType` is supported (RevenueCat `Purchases.canMakePayments`). The synchronous `canMakePayments()` is deprecated.
+
+### Fixed
+
+- Restore on the native paywall tells the user when nothing was restored ("No Subscription Found / We couldn't find an active subscription for your account.") or the restore failed (the error), in an alert over the paywall; a cancellation shows nothing. It only logged, and the button looked dead. iOS (contract C4) and Superwall Android (`PaywallOptions.RestoreFailed`) show the same alert.
+- `BillDog.compose.presentPaywall` runs through core's presentation: the delegate hears `willPresentPaywall`, `onPaywallPresented`, `didPresentPaywall` and `onAnalyticsEvent(paywall_presented)` once the screen has started, and `willDismissPaywall`, `onPaywallDismissed` and `didDismissPaywall` when it closes, as from `BillDog.presentPaywall` and on iOS. It told the delegate nothing, and counted its `paywall_presented` before the screen started, for a launch that might never render.
+- An embedded `PaywallScreen` counts one `paywall_presented` across Activity recreations (rotation, dark mode, a locale change in an app that does not declare `configChanges`). Each recreation counted another, deflating conversion rates. iOS guards the same case.
+- `setUserAttributes` is refused until consent is given when `setConsentRequired(true)`, like every other identity setter and as on iOS. It sent the attributes regardless.
+- `redeemAndNotify` without a `delegate` argument tells `BillDog.delegate` (`onWillRedeemLink` / `onDidRedeemLink`), as on iOS; it told nobody. After a successful `redeemPurchase` or `redeemAndNotify`, customer info and `subscriptionStatus` are read again and published, so a web purchase unlocks at once (RevenueCat `WebPurchaseRedemptionHelper`).
+- `getCustomerInfo` sends store purchases still waiting to be recorded (offline, a timed-out recording) before it reads, as `refreshSubscriptionStatus` and iOS do (RevenueCat `CustomerInfoHelper`). A paid purchase was missing from an explicit `getCustomerInfo(forceRefresh = true)`.
+- `subscriptionStatus` judges the subscription's end date: an answer, restored from disk or stale, whose subscription has since lapsed no longer reads `ACTIVE` (RevenueCat's date-judged `activeSubscriptions`, iOS `hasActiveSubscription`).
+- `canMakePayments()` asked `PackageManager.hasSystemFeature("com.android.vending.billing.IN_APP_BILLING")`, which is not a system feature, so it answered false on every device. React Native's `canMakePayments()` now asks Play through the callback form.
+- `logOut()` clears each module's user-scoped state (feature flags, experiment variants and payloads, in-app message triggers and displayed ids), and the A/B test module, when it was evaluating flags for a user, fetches them again for the new guest (PostHog `reset()`). They survived logOut and served the next user on the device. `logIn` still keeps them.
+
+- In-app messages: on a fullscreen message the title and the first line of the body no longer run under the ✕. The ✕ floated over the card 32 dp down; it now has its own row (a 48 dp target, read as "Close" by TalkBack) and the content starts below it. The fullscreen also no longer draws its title under the status bar (the window is translucent-status, and the white status icons vanished on the white background).
+- In-app messages: an Open URL (`deeplink`) button opens the URL in an app that never called `BillDogInAppMessaging.registerActivityLifecycleCallbacks` — every React Native and Flutter app, and any native app following the README. It opened nothing while the click result reported `InAppMessageUrlTarget.BROWSER`. It now uses the Activity in front that core tracks, as showing a message already did.
+- In-app messages: a message with no image no longer draws an empty 180 dp image box, and a button with no URL reports `url = null` to the click-result handler, not the string `"null"`. The server sends `"image_url": null` / `"url": null`, which Android's `JSONObject.optString(key, null)` reads as the string `"null"`.
+- A module's event on the in-process `BillDogEventBus` reaches each subscriber once. The analytics module records a bus event through `track()`, and `track()` broadcast every event back onto the bus — the one it had just taken from it too — so an event emitted once without the recorded-elsewhere marker (`survey_dismissed`, paywall and purchase lifecycle events) was delivered to every other subscriber twice: React Native's `onSurveyDismissed` fired twice for one survey close. An event taken from the bus is no longer broadcast back (iOS: `track(event:fromEventBus:)`); an app's own tracked event is still broadcast once, for event-triggered surveys. Each event is still recorded once.
 - A purchase through `billdog-integration-superwall` is attributed to the BillDog offering behind the Superwall paywall on screen, when `SuperwallBillDogPurchaseController(offeringMap = …)` names it (Superwall paywall identifier → BillDog offering identifier); the Play offer Superwall selected still applies. Superwall presents its own paywall, so no BillDog paywall was on screen and a product sold in more than one offering (experiment arms, a seasonal offering) was credited to the first loaded offering selling it. A purchase with no mapped paywall on screen, or whose mapped offering is not loaded or does not sell the product, is attributed as before (the last two log a warning). New: `PurchaseParams.presentedOfferingContext` (`Builder.presentedOfferingContext`) names the offering a `purchase(activity, params)` is attributed to, ahead of the first loaded offering selling the product, as a package's own context does (RevenueCat `PurchaseParams.Builder.presentedOfferingContext`). Code compiled against 1.1.1-beta.3's nine-property `PurchaseParams` constructor and `copy` still links.
+
+### Added (also in this release)
+
+- `BillDog.setProxyURL(url, trustedForProofs)` and `BillDogConfig.setProxyURL(url, trustedForProofs)` (`@JvmOverloads`, default `false`): an opted-in proxy also gets the customer proofs (the BillDog Auth session, the device key), so customer-scoped calls such as in-app account deletion work through a proxy you run. Behind a proxy the SDK withheld them, and those calls answered `PROOF_REQUIRED`. The proofs go only to the proxy's exact scheme, host and port, over https (plain http only to a loopback or private-network host in a debug build of the SDK); otherwise the trust is refused and logged, and the proxy still routes. Setting the proxy again without the flag, or clearing it, withdraws the trust; WorkManager workers follow the app's choice. `setProxyURL` now returns whether the trust was granted, and a refusal made before `configure` is logged once `configure` turns logging on.
+- Feature flags record `$feature_flag_called` (`$feature_flag`, `$feature_flag_response`, and `$feature_flag_payload` when the flag is on and has one) once per user, flag and value per process, from the flag getters, as iOS and PostHog do; `getFeatureFlagPayload` does not report, and nothing is recorded without the analytics module. Flag results count only this event, so native Android flag results were empty. Set `sendFeatureFlagEvents = false` on the `BillDogABTest` module to turn it off. New on the module: `isReady` and `waitForFlags(timeoutMs)`.
+- `PlacementResult.OAuthSuccess`: `register` reports a wall that closed after a verified sign-in on it (it was a dismissal). `SkipReason.wireValue` gives the skip reason's cross-platform name.
+- `BillDogInAppMessages.queueCount`, `showNextMessage()` and `resetFrequencyCaps()`, as on iOS.
+- `BillDogNotifications.handleNotificationIntent(intent)`, for a push tap that reaches a running Activity (`onNewIntent`).
+
+### Fixed (also in this release)
+
+#### Identity and auth
+
+- `logOut()` ends a BillDog Auth session held for the signed-in person. The new guest kept sending that session, so the server answered the guest as the signed-out person (their customer info, and any purchase, push token or attribute write), and the session stayed live. It is now signed out locally and revoked on the server.
+- `reset()` ends the BillDog Auth session and revokes it on the server. Android kept the session on purpose, and the new guest's requests carried the previous person's session. A feature-flag or customer-info answer that was in flight for the previous user is never applied to the new one, and the A/B module's `logOut` also drops the targeting attributes, as iOS does.
+- A BillDog Auth sign-in (a wall's sign-in button included) refreshes customer info at once. The SDK kept the guest's cached customer info until its next refresh, so a returning subscriber who signed in on a wall stayed unentitled and a gated `register` showed them the paywall again.
+- An app that configures while a screen is already showing (every React Native and Flutter app, an app that shows a consent screen first) reads the customer's access at launch. `subscriptionStatus` stayed `UNKNOWN`, or the last stored status, for the whole session.
+- `setUserAttributes` saves custom attributes on the server. Every write was answered "No attributes to update" and nothing was stored. Values are now kept on disk per user until the server has them, sent together, resent with the next write and on foreground or launch if a write failed (a rejected value is not resent), and merged on the server; `null` removes a key, and `getUserAttributes` returns the stored values.
+- Google sign-in: the native flow asks for the ID token with the project's Web client id, as Google requires. With an Android client id saved it failed every time with `ApiException 10` (`DEVELOPER_ERROR`). With no native Google configuration, Google sign-in takes BillDog's hosted redirect, as iOS does, instead of failing with "provider not configured".
+- A sign-in on a wall that fails says so on the button ("Couldn't sign in. Try again.", localizable) for a few seconds; the spinner just stopped before. A user cancel shows nothing: the SDK now tells the wall when the user cancelled.
+- BillDog Auth reads a JSON `null` as null, not the string `"null"`: a pending TOTP factor no longer reads as verified, and clearing the active organization answers `null`.
+- A paywall hosted in an Activity that cannot launch the Google sign-in screen (Flutter's inline paywall) no longer crashes; that sign-in answers an error.
+
+#### Purchases and paywalls
+
+- Buying a product the user already owns, and that was already recorded, fails with `AlreadyOwned`, as RevenueCat answers. It came back as a success with the old order id: the paywall closed as if it had sold something and `purchase_completed` fired again.
+- An explicit purchase always records the transaction on the server. A transaction an earlier automatic sync had been refused for was answered from the local record, so the purchase reported success without reaching the server.
+- `restore()` returns each `RestoredPurchase` with its Play order id as `transactionId`; it was empty.
+- A Purchase action with no product, inside a button or package that names one, buys that product. Tapping an "Annual" button bought Monthly when its label sat in a stack with a product-less Purchase.
+- A Purchase with no product, on a wall with several packages and nothing selected, buys nothing and reports a failed purchase (logged), instead of buying the offering's first package. A wall with exactly one package still buys it, and a products component's selection still applies.
+- The delegate's `onPaywallSkipped` hears a skipped placement (entitled, holdout, no paywall configured) from the closure `register` too, not only from the presentation-handler variant.
+- `SubscriptionStatus.name` is the cross-platform value (`active`, `trial`, `gracePeriod`, `expired`, `notSubscribed`, `unknown`), as on iOS; it was `ACTIVE`, `GRACE_PERIOD`, …. The `subscription_status_changed` event carries the same values. A status saved under the old name still restores.
+- `SubscriptionManager.previewUpgrade` (and its server-only upgrade / downgrade siblings) fail at once with a server-only error, as on iOS; use `BillDog.upgradeSubscription` / `downgradeSubscription` to change the Play plan. `PresentationResult.Error` keeps its exception.
+- `billdog-core` keeps Room databases' no-argument constructor for apps minified with R8 on AGP 9 (strict full mode). Those apps crashed at start with `NoSuchMethodException: androidx.work.impl.WorkDatabase_Impl.<init>`.
+
+#### Feature flags
+
+- Flags are evaluated for `setUserId`'s id, else the current user, else the install's anonymous id, and every getter (`getFeatureFlags` included) starts this launch's fetch when none was asked for.
+- `logIn` reloads flags for the signed-in user. An answer in flight for the guest was dropped and nothing asked again, so flags stayed empty for the launch and `waitForFlags` returned false. Flag requests name the platform, SDK version and app version, so the dashboard's platform and app-version conditions match.
+- `ab_variant_assigned` carries `variant_name`, `is_control` and `config`.
+
+#### Analytics
+
+- `BillDogConfig.exceptionAutocapture = true` and `autocaptureEnabled = true` turn those features on; set locally, they did nothing unless the dashboard also enabled them.
+- With analytics consent declined, `$revenue` events are no longer uploaded. Events are classed by name, as on iOS and the server; the `$transaction_id` property made them count as essential.
+
+#### Push and journeys
+
+- Push delivery and opens reach the dashboard: the SDK reports each delivery (`notification_delivered`) under the push's BillDog id, and a tap is recorded from the Activity intent it opens (click handler first, then `onNotificationOpened`), with a tap the app also reports counted once.
+- Push action buttons work (up to three, each with a title and URL), and a push's action URL, or the tapped button's, opens on tap; `opensActionUrlOnTap = false` turns that off.
+- A tap that arrives before a click handler is set is held and given to the first handler (the latest one only); `clearClickHandler()` is new.
+- `optedIn` survives a relaunch: it follows the saved opt-out and the OS permission. The permission status is `NOT_DETERMINED` until the prompt was shown. An opted-out install no longer turns its token back on at the next token callback.
+- The push token moves to the new customer on `logIn` / `logOut` / `switchUser`.
+- Post-purchase reminders are opt-in: `BillDogNotifications.autoSchedulesPurchaseReminders` (default `false`). A purchase used to schedule a local renewal or expiry reminder by itself, in every app that registers the notifications module (every Flutter, React Native and Expo app). Reminders you schedule yourself are unaffected, and a purchase still cancels the reminders of what was bought.
+- The notifications module reads and writes the SDK's consent (the `messaging` purpose) instead of its own copy.
+- In an app that configures after its first screen (every React Native and Flutter app), journey paywall and survey steps, a push tap that opens a paywall, and event-triggered surveys use the screen in front. A journey step was held for the whole session, an `open_paywall` push tap did nothing, and event-triggered surveys never armed.
+- A journey step that arrives with no screen to show it on (a cold start, before the first screen resumes) is kept and shown when one resumes; it was handed back and never delivered again. A journey survey step its gating declines is reported, instead of parking the journey until it expired.
+
+#### In-app messages
+
+- Messages show in an app that configures after its first screen, without `registerActivityLifecycleCallbacks`. They sat in the queue ("No Activity available, cannot display message").
+- A bottom-sheet message can be swiped away (past a third of its height, or a downward fling), like tapping outside or Back.
+- A button tap reports `closingMessage = true` for every button (the message always closes), not only for a dismiss button.
+
+#### Surveys
+
+- Survey state works on Android. The presenter `BillDog.getSurveyPresenter()` returns was built without the part that keeps it, so event triggers never armed or fired, `show_once` / recurrence / wait periods never applied, drafts were never saved, a failed submit was never queued for retry, and `hasCompletedSurvey` was always false.
+- A respondent who answers part of a survey and closes it keeps those answers: partial answers are sent page by page (as on iOS), one at a time, and submit and abandon wait for them.
+- A survey closed while its submit is still in flight is completed, not abandoned, and the app hears `onComplete` (or `onError`) before `onDismiss`.
+- Event-triggered surveys (`registerEvent`, armed triggers) announce their dismissal and completion, so the wrappers' survey listeners and analytics hear them.
+- The survey sheet's Back / Next / Submit sit above the navigation bar (they were drawn under it, and with 3-button navigation could not be tapped), the sheet opens at its full height, and the NPS row fits the screen (9 was cut off and 10 could not be chosen).
+- Rating questions draw the number of stars the builder set (`scale`), and text questions show the builder's placeholder and multi-line setting.
+- TalkBack reads each rating star as "N of M stars" with its selected state, emoji ratings as "N of M", thumbs as "Thumbs up" / "Thumbs down", and the close button as "Close" (localized). It read "★" and "✕".
+- WebView surveys load in apps that target API 30 or later.
 
 ## [1.1.1-beta.4] - 2026-10-24
 
