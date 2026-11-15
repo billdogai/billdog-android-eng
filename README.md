@@ -9,8 +9,9 @@
 ![minSdk](https://img.shields.io/badge/minSdk-21-orange)
 ![Maven Central](https://img.shields.io/badge/Maven%20Central-io.billdog-blue?logo=apachemaven)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![Docs](https://img.shields.io/badge/docs-billdog.io%2Fdocs%2Fandroid--eng-black)](https://billdog.io/docs/android-eng)
 
-The **Eng** edition of the BillDog Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, published as a **compiled AAR** (closed source) to **Maven Central** at version **`1.1.1-beta.5`** — no account or token required.
+The **Eng** edition of the [BillDog](https://billdog.io) Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, published as a **compiled AAR** (closed source) to **Maven Central** at version **`1.1.1-beta.5`** — no account or token required.
 
 > `billdog-eng` bundles the Eng feature set transitively: **core, analytics, A/B testing, notifications, in-app messages, session replay, and surveys**. It is **mutually exclusive** with the full `io.billdog:billdog` suite — install one or the other, never both.
 >
@@ -109,6 +110,29 @@ BillDog.reset()
 - **Java 17** toolchain
 
 ---
+
+## Documentation and resources
+
+- [Android SDK guide](https://billdog.io/docs/android) — install, configure and ship the full SDK
+- [Android Eng SDK guide](https://billdog.io/docs/android-eng) — analytics, flags, surveys and messaging without billing
+- [Quickstart](https://billdog.io/docs/quickstart)
+- [Product analytics](https://billdog.io/docs/product-analytics)
+- [Feature flags](https://billdog.io/docs/feature-flags)
+- [Session replay](https://billdog.io/docs/session-replay)
+- [Support](https://billdog.io/support) — questions, bugs and feature requests
+
+## Other BillDog SDKs
+
+| Platform | Package | Docs |
+|---|---|---|
+| iOS (Swift) | [billdog-ios-spm](https://github.com/billdogai/billdog-ios-spm) | [iOS guide](https://billdog.io/docs/ios) |
+| Android (Kotlin) | [billdog-android-full](https://github.com/billdogai/billdog-android-full) · [billdog-android-eng](https://github.com/billdogai/billdog-android-eng) | [Android guide](https://billdog.io/docs/android) |
+| React Native · Flutter · Web | npm · pub.dev | [React Native](https://billdog.io/docs/react-native) · [Flutter](https://billdog.io/docs/flutter) · [Web](https://billdog.io/docs/web) |
+| Superwall bridge (iOS) | [billdog-ios-superwall](https://github.com/billdogai/billdog-ios-superwall) | [Superwall integration](https://billdog.io/docs/superwall-integration) |
+| Server (Go, PHP, Node, Python…) | [billdogeng-go](https://github.com/billdogai/billdogeng-go) · [billdogeng-php](https://github.com/billdogai/billdogeng-php) | [Server SDKs](https://billdog.io/docs/server-sdk) |
+| AI coding agents (MCP) | [billdog-mcp](https://github.com/billdogai/billdog-mcp) | [MCP server](https://billdog.io/docs/mcp-server) |
+
+Not sure which one you need? See [choosing an SDK](https://billdog.io/docs/sdk-selection).
 
 ## 📄 License
 
