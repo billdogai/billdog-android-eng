@@ -7,6 +7,75 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2-beta.5] - 2026-11-18
+
+### Removed — session replay's `$snapshot` frame path
+
+- `BillDogReplay.captureFrame()` and `BillDogReplay.flush()` are gone. They drove a second recorder that buffered JPEG frames and sent them as `$snapshot` analytics events: the server refused every batch (the frames went out as one JSON string), it skipped the session sample rate, and had it worked it would have filed a second recording per visit beside the video. Recording is the video pipeline's alone, driven by the capture interval; nothing replaces the two calls.
+- Deprecated, with no effect: `BillDogReplay.setSessionIdProvider` (recordings link to the registered analytics module's session on their own — remove the call), `SessionReplayConfig.jpegQuality` and `SessionReplayConfig.batchSize` (nothing read them).
+
+### Fixed — a restore unlocks only what is active
+
+- A restore tapped on a paywall (Compose and web view) closes it and reports success only when the customer then holds an active entitlement (`BillDog.restoreGrantedAccess`, Superwall `RestoreFlow`); otherwise the paywall stays open. A restore lists what the store or a host controller found — the RevenueCat bridge lists every product ever bought, expired ones included — so a non-empty list no longer counts as access.
+- `registerFeature` unlocks on a restore only when the placement's gate now passes, as RevenueCatUI's `presentPaywallIfNeeded` does.
+
+### Added — a host purchase controller can leave finishing to BillDog
+
+- `PurchaseController.leavesFinishingToBillDog` (default `false`): BillDog then acknowledges or consumes each purchase after its server has recorded it, as it does for its own controller. Whether to consume comes from the server's answer (`consume`, from the product type in the BillDog catalog), else the loaded offerings; a product of unknown type is acknowledged, never consumed.
+- Only a purchase just made, or one Play holds on the device (its JSON, from the listener or the sweep), is finished. A bare token from a history (RevenueCat's customer info, a restore) is recorded but never finished, so a launch doesn't re-acknowledge old purchases.
+- `billdog-integration-revenuecat` declares it when RevenueCat is `purchasesAreCompletedBy = MY_APP`, so a bridge purchase is no longer left unacknowledged (Google Play refunded those after 3 days), and consumables are recorded with Play's token before they are consumed. The React Native and Flutter bridges do the same.
+- Acknowledging or consuming runs beside recording, not inside it. A finish can wait tens of seconds for Play Billing to connect and retry, and it used to hold up recording the next purchase. `flush()` (and the background worker) still waits for it, and a finish that fails leaves the purchase unfinished on Play, where the next sweep finds it again.
+
+### Fixed — a purchase is reported as the product the app bought
+
+- A host purchase controller (`billdog-integration-revenuecat`, a React Native or Flutter controller, your own) answers with the store's name for a purchase. Play names a purchase by its subscription only (`premium` for `premium:yearly`), and RevenueCat answers a DEFERRED plan change with the purchase being replaced. `purchase_completed` (`product_id` and its price), `onPurchaseCompleted` and the `PurchaseResult` returned by `purchase(...)` used that id, so they named a product the app never bought, with no price or the old plan's. They now name the catalogue product the purchase was made with. A controller that charged an unrelated product is still reported as that product. Recording the purchase with BillDog is unchanged. BillDog's revenue reports were not affected: they come from the store-verified purchase, not this event.
+- A plan change made with `replacementMode` adds `product_change` to `purchase_completed` (`deferred`, `with_time_proration`, `charge_prorated_price`, `charge_full_price`, `without_proration`), and carries the plan's price only for `IMMEDIATE_AND_CHARGE_FULL_PRICE`: the other modes charge nothing at the change or only a prorated difference (Play Billing, "Subscription replacement modes"). The default upgrade mode (`IMMEDIATE_WITH_TIME_PRORATION`) used to send the new plan's full price.
+- A host purchase named `subscriptionId:basePlanId` with no order id is now matched to its Play purchase by `subscriptionId` (observer mode too), instead of waiting for a sweep.
+
+### Fixed — simulated purchases record the buyer's country
+
+- With `BillDogConfig.simulatedPurchases`, each purchase now sends the buyer's country to BillDog: Play's billing country (`BillingConfig.countryCode`, alpha-2) once Play has reported it, else the device locale's region. Simulated purchases used to be recorded with no country, so Revenue by country showed them as Unknown. When no 2- or 3-letter country is known the field is left out, never guessed. Needs the server's `record-simulated-purchase` with `country` support (an older server ignores the field).
+
+### Added — Play installment plans
+
+- A Play installment base plan (Play Billing 7+) carries `StoreProduct.installmentsInfo` (`InstallmentsInfo`: payment count, renewal count, installment and total prices, periods) from `SubscriptionOfferDetails.installmentPlanDetails`; buy it as any base plan, `subscriptionId:basePlanId`. `EntitlementInfo.commitment` (`CommitmentInfo`) reports the commitment of an installment or Apple 12-month-commitment subscription. Paywall variables `product.isCommitment`, `commitmentPaymentsCount`, `installmentPrice`, `commitmentTotalPrice`, `commitmentPeriod` (+ raw values). `purchase_completed` adds `billing_plan`. Guide: https://billdog.io/docs/commitment-plans
+
+### Changed — one survey at a time, and a reason when none is shown
+
+- `SurveyPresenter.present` shows one survey at a time. A request while another survey is open or loading is refused and the open survey is left alone: the refused request gets `onNotPresented(surveyId, "already_presenting")`, then `onDismiss`. A second request used to overwrite the open survey's callbacks or stack a second survey on top of it.
+- New `SurveyPresentationHandler.onNotPresented: ((surveyId, reason) -> Unit)?` (default `null`), called before `onDismiss` whenever a survey is not shown. `reason` is a `SurveyNotPresentedReason` constant (`already_presenting`, `disabled`, `consent`, `show_once`, `sampling`, `intercept`, `recurring`, `wait_period`, `display_conditions`, `not_eligible`) or, when the server declined this user, the server's own reason (e.g. `audience_not_matched`), which used to arrive as a bare `onDismiss`. `onDismiss` still fires for every survey that is not shown, and callers using named arguments still compile. A journey's survey step reports `not_presented:<reason>`.
+- Every gate, failure and close frees the presenter, including a custom `showUI` that closes itself after submit, so a lost callback can't block later surveys. `SurveyActivity` and `WebViewSurveyActivity` keep their callbacks when the system recreates them (dark mode, font size, locale), and report a close once when they finish any other way.
+
+### Fixed — web view surveys finish when a submit fails
+
+- The survey screen bundled in `billdog-webview` is rebuilt with the shared survey fix: after Submit a survey shows its thank-you screen, or a default "Thank you!"; a failed submit keeps the answers with a retry message and a **Close for now** button; closing while a submit is in flight ends as a dismiss instead of hanging.
+
+### Fixed — a paywall purchase applies the offer its own offering pins
+
+- A paywall tap names only a product, and the Play offer (`playOfferId`) applied came from the first loaded package selling it, current offering first. A paywall rendering another offering (a placement's, an experiment arm's) that pinned an offer for a product the current offering also sells charged the base plan's price, and an offer pinned in the current offering was applied to a paywall that pinned none. The purchase now takes the package in the offering the paywall rendered, as attribution already did, else the first match. `BillDog.purchase(activity, productId)` and plan changes both follow it.
+
+### Fixed — `user.isEligibleForPromo` is no longer always `false`
+
+- The paywall variable was hard-coded `false`, so a component shown on it (the Builder's Promotional Offer Text) appeared only in the Builder preview. It is now `true` when the package pins a Play offer (`playOfferId`) that Play lists for this account: Play lists only offers the account is eligible for, and the purchase applies a listed pin. Compose and web view paywalls both read it.
+
+### Fixed — a second `configure()` stops the first one's purchase recording
+
+- Calling `BillDog.configure()` again left the previous configuration's store recording running. `BillDogRevenueCat.configure` is such a second call whenever the app configured BillDog first. Both recorders posted the same purchase evidence and finished the same purchases: one purchase got up to three consume calls, the extra ones failing with `ITEM_NOT_OWNED`, and with RevenueCat in its default mode BillDog tried to consume a purchase RevenueCat had already consumed. `configure()` now stops the previous recording first, as RevenueCat closes its previous instance; a finish it skips is picked up by the next sweep.
+- Handlers no longer pile up with each `configure()`: the notification-opened paywall route, the event-triggered survey route, and the VirtualCurrency and Notifications purchase handlers (VirtualCurrency ran twice per purchase) are replaced, not added.
+
+### Fixed — Play Billing is found in R8-minified apps
+
+- In a release build minified with R8, which includes every Flutter release build, BillDog decided Play Billing was missing: `canMakePayments` / `awaitCanMakePayments` answered `false`, and purchases made outside the app were not observed. (Purchases from the app still worked.) The check now survives R8 renaming Play Billing's classes, with no keep rule, so R8 can still shrink the library.
+- `billdog-core`'s consumer rules add `-dontwarn com.android.billingclient.**`, so a minified app that doesn't ship Play Billing builds. R8 failed it with `Missing class com.android.billingclient.api.BillingClient`.
+
+### Changed — `enableLogging` now silences SDK debug output
+
+- With `enableLogging = false` (the default), the SDK no longer prints its debug, info and verbose lines. About 360 of them wrote to Logcat directly, so release builds logged even with `enableLogging = BuildConfig.DEBUG`. They now go through `BillDogLogger` and follow `enableLogging` and `logLevel`; lines logged before `configure` are dropped. Warnings and errors the SDK writes straight to Logcat stay visible in release, as RevenueCat's do. If you read SDK debug lines in Logcat, set `enableLogging = true`.
+
+### Changed — package metadata
+
+- The Maven POM's project `url` is https://billdog.io/docs/android (it was the redirect-only billdog.app).
+
 ## [1.1.1-beta.5] - 2026-11-03
 
 ### Fixed — Superwall 2.9: paywall purchases reach BillDog
