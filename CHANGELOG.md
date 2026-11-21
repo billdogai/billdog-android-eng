@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0-beta.1] - 2026-11-20
+
+### Fixed — billing retry is reported
+
+- `EntitlementInfo.isInBillingRetry` was always false: the server never sent the state, and the parser dropped `renewalInfo`. The server now sends `state` `billing_retry` and a full `renewalInfo`, and the parser reads it (grace end, lifecycle state included).
+- New `CustomerInfo.isInBillingRetry` and `billingIssueDetectedAt`. A Play account hold or App Store retry runs after access ended, when no entitlement is left to carry the flag, so read the customer-level value for "update your payment method" prompts.
+
+### Fixed — a host purchase the server refused is not a success
+
+- A purchase made by a host controller (RevenueCat, Superwall, the app's own code) whose recording `record-store-evidence` refused (`OWNED_BY_OTHER`, `BUNDLE_MISMATCH`, …) now ends `PurchaseResult.Failed` (`PurchaseOwnerConflict` or `ReceiptValidationError`), as BillDog's own purchases already did (H8). A purchase the server holds, still queued or awaiting the store stays a success; a client-side `EVIDENCE_DEFERRED` (BillDog's Play listener records it later) too.
+- RevenueCat bridge: a RevenueCat `logIn` / `logOut` that failed is applied again before the next purchase or restore, so RevenueCat records it for BillDog's current user.
+
 ## [1.1.2-beta.5] - 2026-11-18
 
 ### Removed — session replay's `$snapshot` frame path

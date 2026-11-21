@@ -11,7 +11,7 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![Docs](https://img.shields.io/badge/docs-billdog.io%2Fdocs%2Fandroid--eng-black)](https://billdog.io/docs/android-eng)
 
-The **Eng** edition of the [BillDog](https://billdog.io) Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, published as a **compiled AAR** (closed source) to **Maven Central** at version **`1.1.2-beta.5`** — no account or token required.
+The **Eng** edition of the [BillDog](https://billdog.io) Android SDK — a single umbrella artifact, **`io.billdog:billdog-eng`**, published as a **compiled AAR** (closed source) to **Maven Central** at version **`1.2.0-beta.1`** — no account or token required.
 
 > `billdog-eng` bundles the Eng feature set transitively: **core, analytics, A/B testing, notifications, in-app messages, session replay, and surveys**. It is **mutually exclusive** with the full `io.billdog:billdog` suite — install one or the other, never both.
 >
@@ -56,7 +56,7 @@ dependencyResolutionManagement {
 
 ```kotlin
 dependencies {
-    implementation("io.billdog:billdog-eng:1.1.2-beta.5")
+    implementation("io.billdog:billdog-eng:1.2.0-beta.1")
 }
 ```
 
